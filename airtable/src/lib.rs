@@ -17,8 +17,8 @@
  *     let mut records: Vec<Record<SomeFormat>> = airtable
  *         .list_records(
  *             "Table Name",
- *             "Grid view",
- *             vec!["the", "fields", "you", "want", "to", "return"],
+ *             Some("Grid view"),
+ *             Some(vec!["the", "fields", "you", "want", "to", "return"]),
  *         )
  *         .await
  *         .unwrap();
@@ -161,16 +161,25 @@ impl Airtable {
     pub async fn list_records<T: DeserializeOwned>(
         &self,
         table: &str,
-        view: &str,
-        fields: Vec<&str>,
+        view: Option<&str>,
+        fields: Option<Vec<&str>>,
+        filter_by_formula: Option<&str>,
     ) -> Result<Vec<Record<T>>> {
-        let mut params = vec![("pageSize", "100".to_string()), ("view", view.to_string())];
-        for field in fields {
-            params.push(("fields[]", field.to_string()));
+        let mut params = vec![("pageSize", "100".to_string())];
+        if let Some(view) = view {
+            params.push(("view", view.to_string()));
+        }
+        if let Some(fields) = fields {
+            for field in fields {
+                params.push(("fields[]", field.to_string()));
+            }
+        }
+        if let Some(filter_by_formula) = filter_by_formula {
+            params.push(("filterByFormula", filter_by_formula.to_string()));
         }
 
         // Build the request.
-        let mut request = self.request(Method::GET, table.to_string(), (), Some(params))?;
+        let mut request = self.request(Method::GET, table.to_string(), (), Some(params.clone()))?;
 
         let mut resp = self.client.execute(request).await?;
         match resp.status() {
@@ -190,15 +199,14 @@ impl Airtable {
         // Paginate if we should.
         // TODO: make this more DRY
         while !offset.is_empty() {
+            let mut offset_params = params.clone();
+            offset_params.push(("offset", offset));
+
             request = self.request(
                 Method::GET,
                 table.to_string(),
                 (),
-                Some(vec![
-                    ("pageSize", "100".to_string()),
-                    ("view", view.to_string()),
-                    ("offset", offset),
-                ]),
+                Some(offset_params),
             )?;
 
             resp = self.client.execute(request).await?;
